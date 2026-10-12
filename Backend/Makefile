@@ -25,5 +25,8 @@ run-consola: analizador_ext2
 run-api: api_server
 	./api_server
 
+test: all
+	bash tests/test_comandos.sh
+
 clean:
 	rm -f analizador_ext2 api_server

@@ -1,339 +1,599 @@
 #include "fdisk.h"
+
 #include "disk_utils.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstring>
-#include <iostream>
 #include <fstream>
+#include <iostream>
+#include <limits>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace {
+struct LogicaEncontrada {
+    int posicionEBR = -1;
+    int posicionAnterior = -1;
+    int indiceExtendida = -1;
+    EBR ebr{};
+};
 
-std::string lower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
-        return char(std::tolower(c));
+std::string lower(std::string valor) {
+    std::transform(valor.begin(), valor.end(), valor.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
     });
-    return s;
+    return valor;
 }
 
-bool param(const std::string& t, std::string& k, std::string& v) {
-    auto p = t.find('=');
-    if (p == std::string::npos) {
-        return false;
-    }
-    k = lower(t.substr(0, p));
-    v = t.substr(p + 1);
+bool separarParametro(const std::string &token, std::string &clave, std::string &valor) {
+    const std::size_t pos = token.find('=');
+    if (pos == std::string::npos) return false;
+    clave = lower(token.substr(0, pos));
+    valor = token.substr(pos + 1);
     return true;
 }
 
-char fitChar(const std::string& s) {
-    auto x = lower(s);
-    return x == "bf" ? 'b' : x == "ff" ? 'f' : x == "wf" ? 'w' : '?';
+char convertirFit(const std::string &valor) {
+    const std::string fit = lower(valor);
+    if (fit == "bf") return 'b';
+    if (fit == "ff") return 'f';
+    if (fit == "wf") return 'w';
+    return '?';
 }
 
-char typeChar(const std::string& s) {
-    auto x = lower(s);
-    return x == "p" ? 'p' : x == "e" ? 'e' : x == "l" ? 'l' : '?';
+char convertirTipo(const std::string &valor) {
+    const std::string tipo = lower(valor);
+    if (tipo == "p") return 'p';
+    if (tipo == "e") return 'e';
+    if (tipo == "l") return 'l';
+    return '?';
 }
 
-int toBytes(int n, const std::string& u) {
-    auto x = lower(u);
-    if (x == "b") return n;
-    if (x == "k") return n * 1024;
-    if (x == "m") return n * 1024 * 1024;
-    return -1;
+bool convertirBytes(long long valor, const std::string &unidad, long long &bytes) {
+    const std::string u = lower(unidad);
+    long long factor = 1;
+    if (u == "b") factor = 1;
+    else if (u == "k") factor = 1024;
+    else if (u == "m") factor = 1024LL * 1024LL;
+    else return false;
+
+    if (valor > std::numeric_limits<long long>::max() / factor ||
+        valor < std::numeric_limits<long long>::min() / factor) return false;
+    bytes = valor * factor;
+    return bytes >= std::numeric_limits<int>::min() && bytes <= std::numeric_limits<int>::max();
 }
 
-int choose(const std::vector<libre>& spaces, int need, char fit) {
-    if (fit == 'f') {
-        for (int i = 0; i < (int)spaces.size(); ++i) {
-            if (spaces[i].size >= need) return i;
+bool limpiarRango(const std::string &ruta, int inicio, int cantidad) {
+    if (inicio < 0 || cantidad < 0) return false;
+    std::fstream archivo(ruta, std::ios::in | std::ios::out | std::ios::binary);
+    if (!archivo) return false;
+    archivo.seekp(inicio);
+    const std::vector<char> ceros(64 * 1024, '\0');
+    int restantes = cantidad;
+    while (restantes > 0) {
+        const int bloque = std::min<int>(restantes, static_cast<int>(ceros.size()));
+        archivo.write(ceros.data(), bloque);
+        if (!archivo) return false;
+        restantes -= bloque;
+    }
+    archivo.flush();
+    return static_cast<bool>(archivo);
+}
+
+bool estaMontada(const EstadoGlobal &estado, const std::string &ruta, const std::string &nombre) {
+    for (const auto &discoMontado : estado.discosMontados) {
+        if (discoMontado.ruta != ruta) continue;
+        for (const auto &particionMontada : discoMontado.particiones) {
+            if (particionMontada.nombre == nombre) return true;
         }
     }
-    if (fit == 'b') {
-        int best = -1;
-        for (int i = 0; i < (int)spaces.size(); ++i) {
-            if (spaces[i].size >= need && (best < 0 || spaces[i].size < spaces[best].size)) {
-                best = i;
+    return false;
+}
+
+bool buscarLogicaCompleta(const std::string &ruta, const SimDisk &disco,
+                          const std::string &nombre, LogicaEncontrada &resultado) {
+    int indiceExtendida = -1;
+    if (!buscarExtendida(disco, indiceExtendida)) return false;
+
+    const particion &extendida = disco.particiones[indiceExtendida];
+    const int inicio = extendida.part_start;
+    const int fin = extendida.part_start + extendida.part_s;
+    int posicion = inicio;
+    int anterior = -1;
+
+    for (int visitas = 0; visitas < 100000 && posicion >= inicio &&
+         posicion + static_cast<int>(sizeof(EBR)) <= fin; ++visitas) {
+        EBR actual{};
+        if (!leerEBR(ruta, posicion, actual)) return false;
+        if (actual.part_s > 0 && std::string(actual.part_name) == nombre) {
+            resultado.posicionEBR = posicion;
+            resultado.posicionAnterior = anterior;
+            resultado.indiceExtendida = indiceExtendida;
+            resultado.ebr = actual;
+            return true;
+        }
+        if (actual.part_next == -1 || actual.part_next <= posicion ||
+            actual.part_next + static_cast<int>(sizeof(EBR)) > fin) break;
+        anterior = posicion;
+        posicion = actual.part_next;
+    }
+    return false;
+}
+
+bool nombreYaExiste(const std::string &ruta, const SimDisk &disco, const std::string &nombre) {
+    for (const auto &particion : disco.particiones) {
+        if ((particion.part_type == 'p' || particion.part_type == 'e') &&
+            std::string(particion.part_name) == nombre) return true;
+    }
+    LogicaEncontrada logica;
+    return buscarLogicaCompleta(ruta, disco, nombre, logica);
+}
+
+bool espacioParaParticion(const SimDisk &disco, int bytes, char fit, int &inicioElegido) {
+    std::vector<std::pair<int, int>> ocupados;
+    for (const auto &particion : disco.particiones) {
+        if (particion.part_type != 'p' && particion.part_type != 'e') continue;
+        if (particion.part_s <= 0 || particion.part_start < 0) continue;
+        ocupados.emplace_back(particion.part_start, particion.part_start + particion.part_s);
+    }
+    std::sort(ocupados.begin(), ocupados.end());
+
+    std::vector<std::pair<int, int>> libres;
+    int cursor = EndMBR;
+    for (const auto &rango : ocupados) {
+        if (rango.first > cursor) libres.emplace_back(cursor, rango.first - cursor);
+        cursor = std::max(cursor, rango.second);
+    }
+    if (cursor < disco.tamano) libres.emplace_back(cursor, disco.tamano - cursor);
+
+    int seleccionado = -1;
+    for (int i = 0; i < static_cast<int>(libres.size()); ++i) {
+        if (libres[i].second < bytes) continue;
+        if (seleccionado < 0) {
+            seleccionado = i;
+            if (fit == 'f') break;
+            continue;
+        }
+        if (fit == 'b' && libres[i].second < libres[seleccionado].second) seleccionado = i;
+        if (fit == 'w' && libres[i].second > libres[seleccionado].second) seleccionado = i;
+    }
+    if (seleccionado < 0) return false;
+    inicioElegido = libres[seleccionado].first;
+    return true;
+}
+
+bool crearLogica(const std::string &ruta, SimDisk &disco, int indiceExtendida,
+                 int bytes, char fit, const std::string &nombre) {
+    const particion &extendida = disco.particiones[indiceExtendida];
+    const int inicio = extendida.part_start;
+    const int fin = extendida.part_start + extendida.part_s;
+    int posicion = inicio;
+
+    EBR primero{};
+    if (!leerEBR(ruta, inicio, primero)) return false;
+    if (primero.part_s == 0 && primero.part_next == -1) {
+        if (inicio + static_cast<int>(sizeof(EBR)) + bytes > fin) return false;
+        EBR nueva{};
+        nueva.part_status = '0';
+        nueva.part_fit = fit;
+        nueva.part_start = inicio + static_cast<int>(sizeof(EBR));
+        nueva.part_s = bytes;
+        nueva.part_next = -1;
+        std::strncpy(nueva.part_name, nombre.c_str(), sizeof(nueva.part_name) - 1);
+        return escribirEBR(ruta, inicio, nueva);
+    }
+
+    for (int visitas = 0; visitas < 100000; ++visitas) {
+        EBR actual{};
+        if (posicion < inicio || posicion + static_cast<int>(sizeof(EBR)) > fin ||
+            !leerEBR(ruta, posicion, actual)) return false;
+
+        if (actual.part_s > 0) {
+            const int finDatos = actual.part_start + actual.part_s;
+            if (actual.part_next != -1) {
+                if (finDatos + static_cast<int>(sizeof(EBR)) + bytes <= actual.part_next) {
+                    EBR nueva{};
+                    nueva.part_status = '0';
+                    nueva.part_fit = fit;
+                    nueva.part_start = finDatos + static_cast<int>(sizeof(EBR));
+                    nueva.part_s = bytes;
+                    nueva.part_next = actual.part_next;
+                    std::strncpy(nueva.part_name, nombre.c_str(), sizeof(nueva.part_name) - 1);
+                    actual.part_next = finDatos;
+                    return escribirEBR(ruta, finDatos, nueva) && escribirEBR(ruta, posicion, actual);
+                }
+                if (actual.part_next <= posicion) return false;
+                posicion = actual.part_next;
+                continue;
+            }
+
+            if (finDatos + static_cast<int>(sizeof(EBR)) + bytes > fin) return false;
+            EBR nueva{};
+            nueva.part_status = '0';
+            nueva.part_fit = fit;
+            nueva.part_start = finDatos + static_cast<int>(sizeof(EBR));
+            nueva.part_s = bytes;
+            nueva.part_next = -1;
+            std::strncpy(nueva.part_name, nombre.c_str(), sizeof(nueva.part_name) - 1);
+            actual.part_next = finDatos;
+            return escribirEBR(ruta, finDatos, nueva) && escribirEBR(ruta, posicion, actual);
+        }
+
+        return false;
+    }
+    return false;
+}
+
+bool agregarEspacio(const std::string &ruta, SimDisk &disco, const std::string &nombre,
+                    int delta, EstadoGlobal &estado) {
+    if (delta == 0) {
+        std::cout << "[ERROR] -add debe ser distinto de cero.\n";
+        return false;
+    }
+    if (estaMontada(estado, ruta, nombre)) {
+        std::cout << "[ERROR] Desmonte la particion antes de cambiar su tamano.\n";
+        return false;
+    }
+
+    int indice = -1;
+    for (int i = 0; i < 4; ++i) {
+        if ((disco.particiones[i].part_type == 'p' || disco.particiones[i].part_type == 'e') &&
+            std::string(disco.particiones[i].part_name) == nombre) {
+            indice = i;
+            break;
+        }
+    }
+
+    if (indice >= 0) {
+        particion &objetivo = disco.particiones[indice];
+        const long long nuevoTamanoLargo = static_cast<long long>(objetivo.part_s) + delta;
+        if (nuevoTamanoLargo <= 0 || nuevoTamanoLargo > std::numeric_limits<int>::max()) {
+            std::cout << "[ERROR] El nuevo tamano de la particion debe ser positivo.\n";
+            return false;
+        }
+        const int nuevoTamano = static_cast<int>(nuevoTamanoLargo);
+
+        if (delta > 0) {
+            int limite = disco.tamano;
+            for (int i = 0; i < 4; ++i) {
+                if (i == indice) continue;
+                const auto &otra = disco.particiones[i];
+                if ((otra.part_type == 'p' || otra.part_type == 'e') &&
+                    otra.part_start >= objetivo.part_start + objetivo.part_s) {
+                    limite = std::min(limite, otra.part_start);
+                }
+            }
+            if (objetivo.part_start + nuevoTamano > limite) {
+                std::cout << "[ERROR] No existe suficiente espacio libre contiguo despues de la particion.\n";
+                return false;
             }
         }
-        return best;
-    }
-    int worst = -1;
-    for (int i = 0; i < (int)spaces.size(); ++i) {
-        if (spaces[i].size >= need && (worst < 0 || spaces[i].size > spaces[worst].size)) {
-            worst = i;
+
+        if (objetivo.part_type == 'e') {
+            const int finNuevo = objetivo.part_start + nuevoTamano;
+            int posicion = objetivo.part_start;
+            for (int visitas = 0; visitas < 100000 && posicion + static_cast<int>(sizeof(EBR)) <=
+                 objetivo.part_start + objetivo.part_s; ++visitas) {
+                EBR ebr{};
+                if (!leerEBR(ruta, posicion, ebr)) break;
+                if (ebr.part_s > 0 && (posicion + static_cast<int>(sizeof(EBR)) > finNuevo ||
+                    ebr.part_start + ebr.part_s > finNuevo)) {
+                    std::cout << "[ERROR] No se puede reducir la extendida: contiene particiones logicas fuera del nuevo limite.\n";
+                    return false;
+                }
+                if (ebr.part_next == -1 || ebr.part_next <= posicion) break;
+                posicion = ebr.part_next;
+            }
         }
+
+        objetivo.part_s = nuevoTamano;
+        MBR mbr{};
+        if (!leerMBR(ruta, mbr)) return false;
+        mbr.mbr_partition[indice] = objetivo;
+        if (!escribirMBR(ruta, mbr)) return false;
+        estado.discos[ruta] = disco;
+        std::cout << "[EXITOSO] Tamano actualizado para " << nombre << ": " << nuevoTamano << " bytes.\n";
+        return true;
     }
-    return worst;
+
+    LogicaEncontrada logica;
+    if (!buscarLogicaCompleta(ruta, disco, nombre, logica)) {
+        std::cout << "[ERROR] No existe una particion llamada '" << nombre << "'.\n";
+        return false;
+    }
+
+    const particion &extendida = disco.particiones[logica.indiceExtendida];
+    const long long nuevoTamanoLargo = static_cast<long long>(logica.ebr.part_s) + delta;
+    if (nuevoTamanoLargo <= 0 || nuevoTamanoLargo > std::numeric_limits<int>::max()) {
+        std::cout << "[ERROR] El nuevo tamano de la particion logica debe ser positivo.\n";
+        return false;
+    }
+    const int nuevoTamano = static_cast<int>(nuevoTamanoLargo);
+    const int nuevoFin = logica.ebr.part_start + nuevoTamano;
+    const int limite = logica.ebr.part_next == -1
+        ? extendida.part_start + extendida.part_s
+        : logica.ebr.part_next;
+    if (nuevoFin > limite) {
+        std::cout << "[ERROR] No existe espacio libre contiguo suficiente despues de la particion logica.\n";
+        return false;
+    }
+    logica.ebr.part_s = nuevoTamano;
+    if (!escribirEBR(ruta, logica.posicionEBR, logica.ebr)) return false;
+    std::cout << "[EXITOSO] Tamano actualizado para la particion logica " << nombre
+              << ": " << nuevoTamano << " bytes.\n";
+    return true;
+}
+
+bool eliminarParticion(const std::string &ruta, SimDisk &disco, const std::string &nombre,
+                       const std::string &modo, EstadoGlobal &estado) {
+    if (modo != "fast" && modo != "full") {
+        std::cout << "[ERROR] -delete solo acepta fast o full.\n";
+        return false;
+    }
+    if (estaMontada(estado, ruta, nombre)) {
+        std::cout << "[ERROR] Desmonte la particion antes de eliminarla.\n";
+        return false;
+    }
+
+    std::cout << "[CONFIRMACION] Solicitud de eliminacion " << modo
+              << " para la particion '" << nombre << "'.\n";
+
+    for (int i = 0; i < 4; ++i) {
+        particion &objetivo = disco.particiones[i];
+        if ((objetivo.part_type != 'p' && objetivo.part_type != 'e') ||
+            std::string(objetivo.part_name) != nombre) continue;
+
+        if (modo == "full" && !limpiarRango(ruta, objetivo.part_start, objetivo.part_s)) {
+            std::cout << "[ERROR] No se pudo limpiar el espacio de la particion.\n";
+            return false;
+        }
+        limpiarParticion(objetivo);
+        MBR mbr{};
+        if (!leerMBR(ruta, mbr)) return false;
+        mbr.mbr_partition[i] = objetivo;
+        if (!escribirMBR(ruta, mbr)) return false;
+        estado.discos[ruta] = disco;
+        std::cout << "[EXITOSO] Particion '" << nombre << "' eliminada (" << modo << ").\n";
+        return true;
+    }
+
+    LogicaEncontrada logica;
+    if (!buscarLogicaCompleta(ruta, disco, nombre, logica)) {
+        std::cout << "[ERROR] No existe una particion llamada '" << nombre << "'.\n";
+        return false;
+    }
+
+    const int finDatos = logica.ebr.part_start + logica.ebr.part_s;
+    if (logica.posicionAnterior >= 0) {
+        EBR anterior{};
+        if (!leerEBR(ruta, logica.posicionAnterior, anterior)) return false;
+        anterior.part_next = logica.ebr.part_next;
+        if (!escribirEBR(ruta, logica.posicionAnterior, anterior)) return false;
+        if (modo == "full" && !limpiarRango(ruta, logica.posicionEBR,
+                                             finDatos - logica.posicionEBR)) {
+            std::cout << "[ERROR] No se pudo limpiar la particion logica.\n";
+            return false;
+        }
+    } else if (logica.ebr.part_next != -1) {
+        // El primer EBR ocupa el inicio de la extendida. Se copia el siguiente
+        // encabezado al principio para mantener accesible la cadena de logicas.
+        EBR siguiente{};
+        if (!leerEBR(ruta, logica.ebr.part_next, siguiente)) return false;
+        if (modo == "full" && !limpiarRango(ruta, logica.ebr.part_start,
+                                             logica.ebr.part_s)) return false;
+        if (!escribirEBR(ruta, disco.particiones[logica.indiceExtendida].part_start, siguiente)) {
+            return false;
+        }
+    } else {
+        if (modo == "full" && !limpiarRango(ruta, logica.ebr.part_start,
+                                             logica.ebr.part_s)) return false;
+        EBR vacio{};
+        vacio.part_status = '0';
+        vacio.part_fit = disco.particiones[logica.indiceExtendida].part_fit;
+        vacio.part_start = disco.particiones[logica.indiceExtendida].part_start
+            + static_cast<int>(sizeof(EBR));
+        vacio.part_s = 0;
+        vacio.part_next = -1;
+        if (!escribirEBR(ruta, disco.particiones[logica.indiceExtendida].part_start, vacio)) return false;
+    }
+
+    std::cout << "[EXITOSO] Particion logica '" << nombre << "' eliminada (" << modo << ").\n";
+    return true;
 }
 
 } // namespace
 
-void fdisk(std::vector<std::string>& p, EstadoGlobal& estado) {
-    int size = -1;
-    std::string unit = "k", path, type = "p", fit = "wf", name;
+void fdisk(std::vector<std::string> &parametros, EstadoGlobal &estado) {
+    long long size = 0;
+    long long add = 0;
+    bool tieneSize = false;
+    bool tieneAdd = false;
+    bool tieneDelete = false;
+    std::string unidad = "k";
+    std::string ruta;
+    std::string tipo = "p";
+    std::string fit = "wf";
+    std::string nombre;
+    std::string modoDelete;
 
-    for (size_t i = 1; i < p.size(); ++i) {
-        std::string k, v;
-        if (!param(p[i], k, v)) {
-            std::cout << "[ERROR] FDISK requiere clave=valor.\n";
+    for (std::size_t i = 1; i < parametros.size(); ++i) {
+        std::string clave, valor;
+        if (!separarParametro(parametros[i], clave, valor)) {
+            std::cout << "[ERROR] FDISK requiere parametros clave=valor.\n";
             return;
         }
-        if (k == "size") {
-            try {
-                size = std::stoi(v);
-            } catch (...) {
-                std::cout << "[ERROR] size invalido.\n";
-                return;
+        if (clave == "size") {
+            try { size = std::stoll(valor); } catch (...) {
+                std::cout << "[ERROR] size invalido.\n"; return;
             }
-        } else if (k == "unit") {
-            unit = v;
-        } else if (k == "path") {
-            path = v;
-        } else if (k == "type") {
-            type = v;
-        } else if (k == "fit") {
-            fit = v;
-        } else if (k == "name") {
-            name = v;
+            tieneSize = true;
+        } else if (clave == "add") {
+            try { add = std::stoll(valor); } catch (...) {
+                std::cout << "[ERROR] add invalido.\n"; return;
+            }
+            tieneAdd = true;
+        } else if (clave == "delete") {
+            modoDelete = lower(valor);
+            tieneDelete = true;
+        } else if (clave == "unit") {
+            unidad = valor;
+        } else if (clave == "path") {
+            ruta = valor;
+        } else if (clave == "type") {
+            tipo = valor;
+        } else if (clave == "fit") {
+            fit = valor;
+        } else if (clave == "name") {
+            nombre = valor;
         } else {
-            std::cout << "[ERROR] Parametro no reconocido en FDISK: -" << k << "\n";
+            std::cout << "[ERROR] Parametro no reconocido en FDISK: -" << clave << "\n";
             return;
         }
     }
 
-    if (size <= 0 || path.empty() || name.empty()) {
-        std::cout << "[ERROR] FDISK requiere -size>0, -path y -name.\n";
+    if (ruta.empty() || nombre.empty()) {
+        std::cout << "[ERROR] FDISK requiere -path y -name.\n";
+        return;
+    }
+    if (nombre.size() > 15) {
+        std::cout << "[ERROR] El nombre de particion no puede superar 15 caracteres.\n";
+        return;
+    }
+    if (static_cast<int>(tieneAdd) + static_cast<int>(tieneDelete) > 1) {
+        std::cout << "[ERROR] Use solo una opcion entre -add y -delete.\n";
         return;
     }
 
-    int bytes = toBytes(size, unit);
-    if (bytes <= 0) {
-        std::cout << "[ERROR] -unit debe ser B, K o M.\n";
-        return;
-    }
-
-    char ft = fitChar(fit);
-    char tp = typeChar(type);
-    if (ft == '?' || tp == '?') {
-        std::cout << "[ERROR] Fit o type invalido en FDISK.\n";
-        return;
-    }
-
-    SimDisk d;
-    if (!cargarDisco(path, d)) {
+    SimDisk disco{};
+    if (!cargarDisco(ruta, disco)) {
         std::cout << "[ERROR] No se pudo abrir el disco .mia.\n";
         return;
     }
 
-    for (auto& q : d.particiones) {
-        if (q.part_name[0] && std::string(q.part_name) == name) {
-            std::cout << "[ERROR] Ya existe una particion con ese nombre.\n";
+    if (tieneDelete || tieneAdd) {
+        long long bytesLargos = 0;
+        if (tieneAdd && !convertirBytes(add, unidad, bytesLargos)) {
+            std::cout << "[ERROR] -add o -unit contienen un valor invalido.\n";
             return;
         }
-    }
-
-    int ext = -1;
-    buscarExtendida(d, ext);
-
-    if (tp == 'e' && ext != -1) {
-        std::cout << "[ERROR] Solo puede existir una particion extendida.\n";
+        if (bytesLargos < std::numeric_limits<int>::min() ||
+            bytesLargos > std::numeric_limits<int>::max()) {
+            std::cout << "[ERROR] El valor calculado excede el rango soportado.\n";
+            return;
+        }
+        if (tieneDelete) {
+            if (tieneSize) std::cout << "[AVISO] -size se ignora cuando se utiliza -delete.\n";
+            eliminarParticion(ruta, disco, nombre, modoDelete, estado);
+        } else {
+            if (tieneSize) std::cout << "[AVISO] -size se ignora cuando se utiliza -add.\n";
+            agregarEspacio(ruta, disco, nombre, static_cast<int>(bytesLargos), estado);
+        }
         return;
     }
 
-    if (tp == 'l') {
-        if (ext == -1) {
-            std::cout << "[ERROR] No existe una particion extendida.\n";
+    if (!tieneSize || size <= 0) {
+        std::cout << "[ERROR] Para crear una particion, -size debe ser positivo y mayor que cero.\n";
+        return;
+    }
+    long long bytesLargos = 0;
+    if (!convertirBytes(size, unidad, bytesLargos) || bytesLargos <= 0 ||
+        bytesLargos > std::numeric_limits<int>::max()) {
+        std::cout << "[ERROR] -unit debe ser B, K o M y el tamano debe ser valido.\n";
+        return;
+    }
+    const int bytes = static_cast<int>(bytesLargos);
+    const char fitChar = convertirFit(fit);
+    const char tipoChar = convertirTipo(tipo);
+    if (fitChar == '?' || tipoChar == '?') {
+        std::cout << "[ERROR] Fit o type invalido en FDISK.\n";
+        return;
+    }
+    if (nombreYaExiste(ruta, disco, nombre)) {
+        std::cout << "[ERROR] Ya existe una particion con ese nombre.\n";
+        return;
+    }
+
+    int indiceExtendida = -1;
+    const bool tieneExtendida = buscarExtendida(disco, indiceExtendida);
+    if (tipoChar == 'e' && tieneExtendida) {
+        std::cout << "[ERROR] Solo puede existir una particion extendida por disco.\n";
+        return;
+    }
+    if (tipoChar == 'l') {
+        if (!tieneExtendida) {
+            std::cout << "[ERROR] No existe una particion extendida para alojar la logica.\n";
             return;
         }
-
-        const auto& ep = d.particiones[ext];
-        int epos = ep.part_start;
-        int end = ep.part_start + ep.part_s;
-
-        EBR cur{};
-        if (!leerEBR(path, epos, cur)) {
-            std::cout << "[ERROR] No se pudo leer el EBR inicial.\n";
+        if (!crearLogica(ruta, disco, indiceExtendida, bytes, fitChar, nombre)) {
+            std::cout << "[ERROR] No hay espacio continuo suficiente en la particion extendida.\n";
             return;
         }
-
-        int prev = epos;
-        int curpos = epos;
-
-        while (true) {
-            if (cur.part_s == 0) {
-                int data = curpos + int(sizeof(EBR));
-                if (data + bytes > end) {
-                    std::cout << "[ERROR] No hay espacio en la extendida.\n";
-                    return;
-                }
-
-                EBR nuevo{};
-                nuevo.part_status = '0';
-                nuevo.part_fit = ft;
-                nuevo.part_start = data;
-                nuevo.part_s = bytes;
-                nuevo.part_next = -1;
-                std::strncpy(nuevo.part_name, name.c_str(), 15);
-                nuevo.part_name[15] = 0;
-
-                if (curpos == epos) {
-                    if (!escribirEBR(path, curpos, nuevo)) {
-                        std::cout << "[ERROR] No se pudo escribir EBR.\n";
-                        return;
-                    }
-                } else {
-                    if (!escribirEBR(path, curpos, nuevo)) {
-                        std::cout << "[ERROR] No se pudo escribir EBR.\n";
-                        return;
-                    }
-                }
-
-                if (curpos != epos) {
-                    EBR padre{};
-                    leerEBR(path, prev, padre);
-                    padre.part_next = curpos;
-                    if (!escribirEBR(path, prev, padre)) {
-                        std::cout << "[ERROR] No se pudo actualizar EBR anterior.\n";
-                        return;
-                    }
-                }
-
-                std::cout << "[EXITOSO] Particion logica creada fisicamente: " << name << "\n";
-                return;
-            }
-
-            int siguiente = cur.part_next;
-            int libreInicio = cur.part_start + cur.part_s;
-            int libreFin = (siguiente == -1 ? end : siguiente);
-
-            if (libreFin - libreInicio >= int(sizeof(EBR)) + bytes) {
-                int npos = libreInicio;
-                EBR nuevo{};
-                nuevo.part_status = '0';
-                nuevo.part_fit = ft;
-                nuevo.part_start = npos + int(sizeof(EBR));
-                nuevo.part_s = bytes;
-                nuevo.part_next = siguiente;
-                std::strncpy(nuevo.part_name, name.c_str(), 15);
-                nuevo.part_name[15] = 0;
-
-                cur.part_next = npos;
-                if (!escribirEBR(path, curpos, cur) || !escribirEBR(path, npos, nuevo)) {
-                    std::cout << "[ERROR] No se pudo escribir la particion logica.\n";
-                    return;
-                }
-
-                std::cout << "[EXITOSO] Particion logica creada fisicamente: " << name << "\n";
-                return;
-            }
-
-            if (siguiente == -1) break;
-            prev = curpos;
-            curpos = siguiente;
-
-            if (!leerEBR(path, curpos, cur)) break;
-        }
-
-        std::cout << "[ERROR] No hay espacio disponible en la particion extendida.\n";
+        std::cout << "[EXITOSO] Particion logica creada: " << nombre << "\n";
         return;
     }
 
     int slot = -1;
     for (int i = 0; i < 4; ++i) {
-        if (d.particiones[i].part_type != 'p' && d.particiones[i].part_type != 'e') {
+        if (disco.particiones[i].part_type != 'p' && disco.particiones[i].part_type != 'e') {
             slot = i;
             break;
         }
     }
-
-    if (slot == -1) {
+    if (slot < 0) {
         std::cout << "[ERROR] No hay slots libres en el MBR.\n";
         return;
     }
 
-    std::vector<position> usados;
-    for (int i = 0; i < 4; ++i) {
-        if (d.particiones[i].part_type == 'p' || d.particiones[i].part_type == 'e') {
-            position x{0, 0, 0, "", 0};
-        }
-    }
-
-    // reconstruir espacios sin depender de objetos temporales del estado anterior
-    for (int i = 0; i < 4; ++i) {
-        if (d.particiones[i].part_type == 'p' || d.particiones[i].part_type == 'e') {
-            usados.push_back({
-                d.particiones[i].part_start,
-                d.particiones[i].part_start + d.particiones[i].part_s - 1,
-                d.particiones[i].part_type,
-                std::string(d.particiones[i].part_name),
-                d.particiones[i].part_s
-            });
-        }
-    }
-
-    std::sort(usados.begin(), usados.end());
-    std::vector<libre> spaces;
-    int cursor = EndMBR;
-
-    for (auto& u : usados) {
-        if (u.inicio > cursor) {
-            spaces.push_back({cursor, u.inicio - cursor});
-        }
-        cursor = std::max(cursor, u.fin + 1);
-    }
-
-    if (cursor < d.tamano) {
-        spaces.push_back({cursor, d.tamano - cursor});
-    }
-
-    int idx = choose(spaces, bytes, ft);
-    if (idx < 0) {
+    int inicio = -1;
+    if (!espacioParaParticion(disco, bytes, fitChar, inicio)) {
         std::cout << "[ERROR] No hay espacio contiguo suficiente en el disco.\n";
         return;
     }
 
-    particion np{};
-    inicializarParticion(np);
-    np.part_status = '0';
-    np.part_type = tp;
-    np.part_fit = ft;
-    np.part_start = spaces[idx].inicio;
-    np.part_s = bytes;
-    np.part_correlativ = -1;
-    std::strncpy(np.part_name, name.c_str(), 15);
-    np.part_name[15] = 0;
-    d.particiones[slot] = np;
+    particion nueva{};
+    inicializarParticion(nueva);
+    nueva.part_status = '0';
+    nueva.part_type = tipoChar;
+    nueva.part_fit = fitChar;
+    nueva.part_start = inicio;
+    nueva.part_s = bytes;
+    nueva.part_correlativ = 0;
+    std::strncpy(nueva.part_name, nombre.c_str(), sizeof(nueva.part_name) - 1);
 
-    MBR m{};
-    if (!leerMBR(path, m)) {
-        std::cout << "[ERROR] No se pudo leer MBR.\n";
+    MBR mbr{};
+    if (!leerMBR(ruta, mbr)) {
+        std::cout << "[ERROR] No se pudo leer el MBR.\n";
         return;
     }
-
-    m.mbr_partition[slot] = np;
-    if (!escribirMBR(path, m)) {
+    mbr.mbr_partition[slot] = nueva;
+    if (!escribirMBR(ruta, mbr)) {
         std::cout << "[ERROR] No se pudo guardar la particion.\n";
         return;
     }
 
-    estado.discos[path] = d;
-
-    if (tp == 'e') {
-        EBR e{};
-        e.part_status = '0';
-        e.part_fit = ft;
-        e.part_start = np.part_start + int(sizeof(EBR));
-        e.part_s = 0;
-        e.part_next = -1;
-        escribirEBR(path, np.part_start, e);
+    disco.particiones[slot] = nueva;
+    estado.discos[ruta] = disco;
+    if (tipoChar == 'e') {
+        EBR inicial{};
+        inicial.part_status = '0';
+        inicial.part_fit = fitChar;
+        inicial.part_start = inicio + static_cast<int>(sizeof(EBR));
+        inicial.part_s = 0;
+        inicial.part_next = -1;
+        if (!escribirEBR(ruta, inicio, inicial)) {
+            std::cout << "[AVISO] Particion extendida creada, pero no se pudo inicializar su EBR.\n";
+            return;
+        }
     }
-
-    std::cout << "[EXITOSO] Particion " << (tp == 'e' ? "extendida" : "primaria") << " creada fisicamente: " << name << "\n";
+    std::cout << "[EXITOSO] Particion " << (tipoChar == 'e' ? "extendida" : "primaria")
+              << " creada: " << nombre << " (" << bytes << " bytes).\n";
 }
 
-void particionar(int size, char tipo, const std::string& ruta, const std::string& nombre, char fit, SimDisk& disco) {
+void particionar(int size, char tipo, const std::string &ruta,
+                 const std::string &nombre, char fit, SimDisk &disco) {
+    // Se conserva la firma histórica para compatibilidad con módulos previos.
     (void)size;
     (void)tipo;
     (void)ruta;

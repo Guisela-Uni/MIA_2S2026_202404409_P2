@@ -4,6 +4,7 @@
 #include "estado.h"
 #include <string>
 #include <vector>
+#include <utility>
 
 struct Ext2Context {
     std::string path;
@@ -32,9 +33,17 @@ bool liberarBloque(Ext2Context &ctx, int n);
 std::string normalizarRuta(const std::string &path);
 std::vector<std::string> partesRuta(const std::string &path);
 bool resolverRuta(const Ext2Context &ctx, const std::string &path, int &ino, int *padre = nullptr, std::string *nombre = nullptr);
+// Comprueba la relacion real de parentesco usando las entradas ".." del filesystem.
+bool esDescendienteDirectorio(const Ext2Context &ctx, int posibleAncestro, int directorioDestino);
 bool buscarEntrada(const Ext2Context &ctx, int dirIno, const std::string &nombre, int &ino, int *bloque = nullptr, int *slot = nullptr);
 bool agregarEntrada(Ext2Context &ctx, int dirIno, const std::string &nombre, int childIno);
 bool eliminarEntrada(Ext2Context &ctx, int dirIno, const std::string &nombre);
+bool listarEntradasDirectorio(const Ext2Context &ctx, int dirIno,
+                              std::vector<std::pair<std::string, int>> &entradas);
+bool cambiarNombreEntrada(const Ext2Context &ctx, int dirIno,
+                          const std::string &nombreActual, const std::string &nombreNuevo);
+bool actualizarPadreDirectorio(const Ext2Context &ctx, int dirIno, int nuevoPadre);
+bool liberarArbolInodo(Ext2Context &ctx, int inoNum);
 bool crearDirectorio(Ext2Context &ctx, int padre, const std::string &nombre, int uid, int gid, int &nuevoInodo);
 bool crearArchivo(Ext2Context &ctx, int padre, const std::string &nombre, const std::string &contenido, int uid, int gid, int &nuevoInodo);
 std::string leerArchivo(const Ext2Context &ctx, const inodo &ino);

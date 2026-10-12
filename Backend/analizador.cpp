@@ -30,6 +30,15 @@
 #include "chgrp.h"
 #include "mounted.h"
 #include "reports.h"
+#include "journal_command.h"
+#include "unmount.h"
+#include "remove.h"
+#include "rename.h"
+#include "copy.h"
+#include "move.h"
+#include "find.h"
+#include "chown.h"
+#include "loss.h"
 #include "validaciones.h"
 
 namespace {
@@ -142,6 +151,8 @@ void despacharComando(const std::string &tipoComandoOriginal, std::vector<std::s
         fdisk(parametros, estado_global);
     } else if (tipo_command == "mount") {
         mount(parametros, estado_global);
+    } else if (tipo_command == "unmount") {
+        unmount_cmd(parametros, estado_global);
     } else if (tipo_command == "mkfs") {
         mkfs(parametros, estado_global);
     } else if (tipo_command == "login") {
@@ -168,11 +179,27 @@ void despacharComando(const std::string &tipoComandoOriginal, std::vector<std::s
         mounted(parametros, estado_global);
     } else if (tipo_command == "rep") {
         rep(parametros, estado_global);
+    } else if (tipo_command == "journaling") {
+        mostrarJournal(parametros, estado_global);
+    } else if (tipo_command == "remove") {
+        remove_cmd(parametros, estado_global);
+    } else if (tipo_command == "rename") {
+        rename_cmd(parametros, estado_global);
+    } else if (tipo_command == "copy") {
+        copy_cmd(parametros, estado_global);
+    } else if (tipo_command == "move") {
+        move_cmd(parametros, estado_global);
+    } else if (tipo_command == "find") {
+        find_cmd(parametros, estado_global);
+    } else if (tipo_command == "chown") {
+        chown_cmd(parametros, estado_global);
+    } else if (tipo_command == "loss") {
+        loss_cmd(parametros, estado_global);
     } else {
         // Lexicamente y sintacticamente el comando esta bien escrito,pero no se reconocen en el sistema
         std::cout << "[ERROR] El comando '" << tipoComandoOriginal
                    << "' no es reconocido. Los comandos validos son: MKDISK, RMDISK, FDISK, "
-                   << "MOUNT, MOUNTED, MKFS, LOGIN, LOGOUT, MKGRP, RMGRP, MKUSR, RMUSR, CHGRP, MKFILE, MKDIR, CAT, REP." << std::endl;
+                   << "MOUNT, UNMOUNT, MOUNTED, MKFS, LOGIN, LOGOUT, MKGRP, RMGRP, MKUSR, RMUSR, CHGRP, MKFILE, MKDIR, CAT, REP, JOURNALING, REMOVE, RENAME, COPY, MOVE, FIND, CHOWN, LOSS." << std::endl;
     }
 }
 
