@@ -203,12 +203,4 @@ void mkfs(std::vector<std::string>& parametros, EstadoGlobal& estado) {
     std::memcpy(usersBlock.b_content, usersText.data(), usersText.size());
     
     if (!writeAt(super.s_block_start, &folder, sizeof(folder)) || 
-        !writeAt(super.s_block_start + sizeof(bcarpetas), &usersBlock, sizeof(usersBlock))) {
-        std::cout << "[ERROR] No se pudieron escribir los bloques.\n";
-        return;
-    }
-    
-    f.flush();
-    estado.particionesFormateadas[id] = true;
-    std::cout << "[EXITOSO] Particion " << id << " formateada fisicamente como EXT2.\n";
-}
+        !writeAt(super.s_block_start + sizeof(bcarpetas), &users

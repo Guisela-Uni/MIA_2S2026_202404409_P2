@@ -18,20 +18,17 @@ std::string escapar_json(const std::string &texto) {
 }
 
 std::string extraer_campo_json(const std::string &json, const std::string &campo) {
-    // busca el texto literal "campo"  (ej:  "comando" )
     std::string buscado = "\"" + campo + "\"";
     size_t pos_campo = json.find(buscado);
     if (pos_campo == std::string::npos) {
         return "";
     }
 
-    // A partir de ahi buscamos los dos puntos ":"
     size_t pos_dos_puntos = json.find(':', pos_campo + buscado.size());
     if (pos_dos_puntos == std::string::npos) {
         return "";
     }
 
-    // Luego la primera comilla que abre el valor
     size_t pos_comilla_abre = json.find('"', pos_dos_puntos);
     if (pos_comilla_abre == std::string::npos) {
         return "";
@@ -41,7 +38,6 @@ std::string extraer_campo_json(const std::string &json, const std::string &campo
     size_t i = pos_comilla_abre + 1;
     while (i < json.size() && json[i] != '"') {
         if (json[i] == '\\' && i + 1 < json.size()) {
-            // caracter escapado: tomamos el siguiente tal cual
             char siguiente = json[i + 1];
             if (siguiente == 'n') valor += '\n';
             else if (siguiente == 't') valor += '\t';

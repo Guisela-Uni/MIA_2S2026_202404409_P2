@@ -1,5 +1,6 @@
 #include "mkfile.h"
 #include "ext2_utils.h"
+#include "journaling.h"
 #include <algorithm>
 #include <cctype>
 #include <fstream>
@@ -186,6 +187,10 @@ void mkfile(std::vector<std::string>& p, EstadoGlobal& e) {
             return;
         }
         
+        if (esExt3(c) && !registrarJournal(c, "overwrite", normalizarRuta(path), data)) {
+            std::cout << "[AVISO] El archivo se sobrescribio, pero no se pudo registrar en el journaling.\n";
+        }
+
         std::cout << "[EXITOSO] Archivo sobrescrito: " << path << "\n";
         return;
     }
@@ -222,5 +227,10 @@ void mkfile(std::vector<std::string>& p, EstadoGlobal& e) {
         return;
     }
     
-    std::cout << "[EXITOSO] Archivo creado fisicamente: " << path << " (" << data.size() << " bytes)\n";
+    if (esExt3(c) && !registrarJournal(c, "mkfile", normalizarRuta(path), data)) {
+        std::cout << "[AVISO] El archivo se creo, pero no se pudo registrar en el journaling.\n";
+    }
+
+    std::cout << "[EXITOSO] Archivo creado fisicamente: " << path
+              << " (" << data.size() << " bytes)\n";
 }

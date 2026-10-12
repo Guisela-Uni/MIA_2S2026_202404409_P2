@@ -3,7 +3,6 @@
 
 #include <string>
 
-//  JSON que necesita esta API
 std::string extraer_campo_json(const std::string &json, const std::string &campo);
 
 // Convierte un texto normal en un texto seguro para meter DENTRO de comillas de un JSON (escapa \, ", saltos de linea, tabs, etc.)
