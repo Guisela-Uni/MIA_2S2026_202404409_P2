@@ -39,7 +39,7 @@ std::string base(const std::string& p) {
 
 void mkfile(std::vector<std::string>& p, EstadoGlobal& e) {
     std::string path, cont;
-    bool r = false, hasSize = false;
+    bool r = false, hasSize = false, sobrescribir = false;
     long long size = 0;
     
     for (size_t i = 1; i < p.size(); i++) {
@@ -70,6 +70,16 @@ void mkfile(std::vector<std::string>& p, EstadoGlobal& e) {
             }
         } else if (k == "cont") {
             cont = v;
+        } else if (k == "overwrite") {
+            const std::string valor = low(v);
+            if (valor == "true" || valor == "1" || valor == "si") {
+                sobrescribir = true;
+            } else if (valor == "false" || valor == "0" || valor == "no") {
+                sobrescribir = false;
+            } else {
+                std::cout << "[ERROR] -overwrite acepta true o false.\n";
+                return;
+            }
         } else {
             std::cout << "[ERROR] Parametro no reconocido en MKFILE: -" << k << "\n";
             return;
@@ -95,8 +105,8 @@ void mkfile(std::vector<std::string>& p, EstadoGlobal& e) {
     
     std::string pp = parent(path), name = base(path);
     
-    if (name.empty() || name.size() > 11) {
-        std::cout << "[ERROR] El nombre del archivo debe tener entre 1 y 11 caracteres por la estructura EXT2 del proyecto.\n";
+    if (name.empty() || name.size() > sizeof(content::b_name)) {
+        std::cout << "[ERROR] El nombre del archivo debe tener entre 1 y 12 caracteres por la estructura de directorio del proyecto.\n";
         return;
     }
     
@@ -155,15 +165,22 @@ void mkfile(std::vector<std::string>& p, EstadoGlobal& e) {
             return;
         }
         
-        std::cout << "[AVISO] El archivo ya existe. ¿Desea sobreescribirlo? (s/n): ";
-        std::string ans;
-        std::getline(std::cin, ans);
-        
-        if (low(ans) != "s" && low(ans) != "si") {
-            std::cout << "[INFO] Operacion cancelada.\n";
+        if (!sobrescribir) {
+#if defined(API_MODE)
+            std::cout << "[CONFIRMACION] El archivo ya existe. Para sobrescribir desde la interfaz web, "
+                         "confirme y vuelva a enviar el comando agregando -overwrite=true.\n";
             return;
+#else
+            std::cout << "[AVISO] El archivo ya existe. ¿Desea sobreescribirlo? (s/n): ";
+            std::string ans;
+            std::getline(std::cin, ans);
+            if (low(ans) != "s" && low(ans) != "si") {
+                std::cout << "[INFO] Operacion cancelada.\n";
+                return;
+            }
+#endif
         }
-        
+
         std::string data;
         
         if (!cont.empty()) {

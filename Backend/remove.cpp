@@ -130,8 +130,16 @@ void remove_cmd(std::vector<std::string> &parametros, EstadoGlobal &estado) {
     const std::string ruta = normalizarRuta(path);
     int inoNum = -1, padre = -1;
     std::string nombre;
-    if (ruta == "/" || !resolverRuta(ctx, ruta, inoNum, &padre, &nombre) || padre < 0) {
-        std::cout << "[ERROR] La ruta no existe o no se puede eliminar la raiz.\n";
+    if (ruta == "/") {
+        std::cout << "[ERROR] No se puede eliminar la raiz del sistema de archivos.\n";
+        return;
+    }
+    if (!resolverRuta(ctx, ruta, inoNum, &padre, &nombre)) {
+        std::cout << "[ERROR] No existe el elemento: " << ruta << "\n";
+        return;
+    }
+    if (padre < 0) {
+        std::cout << "[ERROR] No se puede eliminar la raiz del sistema de archivos.\n";
         return;
     }
 

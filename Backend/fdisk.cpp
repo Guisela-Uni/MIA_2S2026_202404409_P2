@@ -92,6 +92,21 @@ bool estaMontada(const EstadoGlobal &estado, const std::string &ruta, const std:
     return false;
 }
 
+bool hayLogicasMontadasEnExtendida(const EstadoGlobal &estado, const std::string &ruta,
+                                   const particion &extendida) {
+    const long long inicio = extendida.part_start;
+    const long long fin = inicio + extendida.part_s;
+    for (const auto &discoMontado : estado.discosMontados) {
+        if (discoMontado.ruta != ruta) continue;
+        for (const auto &particionMontada : discoMontado.particiones) {
+            if (particionMontada.posEBR >= inicio && particionMontada.posEBR < fin) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool buscarLogicaCompleta(const std::string &ruta, const SimDisk &disco,
                           const std::string &nombre, LogicaEncontrada &resultado) {
     int indiceExtendida = -1;
@@ -272,6 +287,10 @@ bool agregarEspacio(const std::string &ruta, SimDisk &disco, const std::string &
         }
 
         if (objetivo.part_type == 'e') {
+            if (hayLogicasMontadasEnExtendida(estado, ruta, objetivo)) {
+                std::cout << "[ERROR] Desmonte las particiones logicas antes de cambiar el tamano de la extendida.\n";
+                return false;
+            }
             const int finNuevo = objetivo.part_start + nuevoTamano;
             int posicion = objetivo.part_start;
             for (int visitas = 0; visitas < 100000 && posicion + static_cast<int>(sizeof(EBR)) <=
@@ -337,13 +356,15 @@ bool eliminarParticion(const std::string &ruta, SimDisk &disco, const std::strin
         return false;
     }
 
-    std::cout << "[CONFIRMACION] Solicitud de eliminacion " << modo
-              << " para la particion '" << nombre << "'.\n";
-
     for (int i = 0; i < 4; ++i) {
         particion &objetivo = disco.particiones[i];
         if ((objetivo.part_type != 'p' && objetivo.part_type != 'e') ||
             std::string(objetivo.part_name) != nombre) continue;
+
+        if (objetivo.part_type == 'e' && hayLogicasMontadasEnExtendida(estado, ruta, objetivo)) {
+            std::cout << "[ERROR] Desmonte las particiones logicas antes de eliminar la extendida.\n";
+            return false;
+        }
 
         if (modo == "full" && !limpiarRango(ruta, objetivo.part_start, objetivo.part_s)) {
             std::cout << "[ERROR] No se pudo limpiar el espacio de la particion.\n";
@@ -355,6 +376,7 @@ bool eliminarParticion(const std::string &ruta, SimDisk &disco, const std::strin
         mbr.mbr_partition[i] = objetivo;
         if (!escribirMBR(ruta, mbr)) return false;
         estado.discos[ruta] = disco;
+        estado.particionesFormateadas[ruta + "|" + nombre] = false;
         std::cout << "[EXITOSO] Particion '" << nombre << "' eliminada (" << modo << ").\n";
         return true;
     }
@@ -399,6 +421,7 @@ bool eliminarParticion(const std::string &ruta, SimDisk &disco, const std::strin
         if (!escribirEBR(ruta, disco.particiones[logica.indiceExtendida].part_start, vacio)) return false;
     }
 
+    estado.particionesFormateadas[ruta + "|" + nombre] = false;
     std::cout << "[EXITOSO] Particion logica '" << nombre << "' eliminada (" << modo << ").\n";
     return true;
 }
@@ -417,6 +440,7 @@ void fdisk(std::vector<std::string> &parametros, EstadoGlobal &estado) {
     std::string fit = "wf";
     std::string nombre;
     std::string modoDelete;
+    std::string confirmacion;
 
     for (std::size_t i = 1; i < parametros.size(); ++i) {
         std::string clave, valor;
@@ -437,6 +461,8 @@ void fdisk(std::vector<std::string> &parametros, EstadoGlobal &estado) {
         } else if (clave == "delete") {
             modoDelete = lower(valor);
             tieneDelete = true;
+        } else if (clave == "confirm") {
+            confirmacion = lower(valor);
         } else if (clave == "unit") {
             unidad = valor;
         } else if (clave == "path") {
@@ -465,6 +491,20 @@ void fdisk(std::vector<std::string> &parametros, EstadoGlobal &estado) {
         std::cout << "[ERROR] Use solo una opcion entre -add y -delete.\n";
         return;
     }
+    if (tieneDelete && modoDelete != "fast" && modoDelete != "full") {
+        std::cout << "[ERROR] -delete solo acepta fast o full.\n";
+        return;
+    }
+    if (!confirmacion.empty() && !tieneDelete) {
+        std::cout << "[ERROR] -confirm solo se utiliza junto con -delete.\n";
+        return;
+    }
+    if (!confirmacion.empty() && confirmacion != "yes" && confirmacion != "no" &&
+        confirmacion != "si" && confirmacion != "s" && confirmacion != "true" &&
+        confirmacion != "false") {
+        std::cout << "[ERROR] -confirm acepta yes/no.\n";
+        return;
+    }
 
     SimDisk disco{};
     if (!cargarDisco(ruta, disco)) {
@@ -485,6 +525,51 @@ void fdisk(std::vector<std::string> &parametros, EstadoGlobal &estado) {
         }
         if (tieneDelete) {
             if (tieneSize) std::cout << "[AVISO] -size se ignora cuando se utiliza -delete.\n";
+
+            bool existeParticion = false;
+            for (const auto &particionActual : disco.particiones) {
+                if ((particionActual.part_type == 'p' || particionActual.part_type == 'e') &&
+                    std::string(particionActual.part_name) == nombre) {
+                    existeParticion = true;
+                    break;
+                }
+            }
+            if (!existeParticion) {
+                LogicaEncontrada logicaExistente;
+                existeParticion = buscarLogicaCompleta(ruta, disco, nombre, logicaExistente);
+            }
+            if (!existeParticion) {
+                std::cout << "[ERROR] No existe una particion llamada '" << nombre << "'.\n";
+                return;
+            }
+
+            const bool confirmado = confirmacion == "yes" || confirmacion == "si" ||
+                                    confirmacion == "s" || confirmacion == "true";
+            const bool rechazado = confirmacion == "no" || confirmacion == "false";
+            if (rechazado) {
+                std::cout << "[INFO] Eliminacion cancelada por el usuario.\n";
+                return;
+            }
+#if defined(API_MODE)
+            if (!confirmado) {
+                std::cout << "[CONFIRMACION] Para eliminar la particion '" << nombre
+                          << "' en modo " << modoDelete
+                          << ", confirme la accion y vuelva a enviar el comando con -confirm=yes.\n";
+                return;
+            }
+#else
+            if (!confirmado) {
+                std::cout << "[CONFIRMACION] ¿Desea eliminar la particion '" << nombre
+                          << "' en modo " << modoDelete << "? (s/n): ";
+                std::string respuesta;
+                std::getline(std::cin, respuesta);
+                respuesta = lower(respuesta);
+                if (respuesta != "s" && respuesta != "si" && respuesta != "yes" && respuesta != "y") {
+                    std::cout << "[INFO] Eliminacion cancelada.\n";
+                    return;
+                }
+            }
+#endif
             eliminarParticion(ruta, disco, nombre, modoDelete, estado);
         } else {
             if (tieneSize) std::cout << "[AVISO] -size se ignora cuando se utiliza -add.\n";
@@ -530,6 +615,7 @@ void fdisk(std::vector<std::string> &parametros, EstadoGlobal &estado) {
             std::cout << "[ERROR] No hay espacio continuo suficiente en la particion extendida.\n";
             return;
         }
+        estado.particionesFormateadas[ruta + "|" + nombre] = false;
         std::cout << "[EXITOSO] Particion logica creada: " << nombre << "\n";
         return;
     }
@@ -575,6 +661,7 @@ void fdisk(std::vector<std::string> &parametros, EstadoGlobal &estado) {
 
     disco.particiones[slot] = nueva;
     estado.discos[ruta] = disco;
+    estado.particionesFormateadas[ruta + "|" + nombre] = false;
     if (tipoChar == 'e') {
         EBR inicial{};
         inicial.part_status = '0';

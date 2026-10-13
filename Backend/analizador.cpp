@@ -38,6 +38,7 @@
 #include "move.h"
 #include "find.h"
 #include "chown.h"
+#include "chmod.h"
 #include "loss.h"
 #include "validaciones.h"
 
@@ -193,6 +194,8 @@ void despacharComando(const std::string &tipoComandoOriginal, std::vector<std::s
         find_cmd(parametros, estado_global);
     } else if (tipo_command == "chown") {
         chown_cmd(parametros, estado_global);
+    } else if (tipo_command == "chmod") {
+        chmod_cmd(parametros, estado_global);
     } else if (tipo_command == "loss") {
         loss_cmd(parametros, estado_global);
     } else {
@@ -293,12 +296,13 @@ std::string procesar_archivo_comandos(const std::string &contenido) {
         comandosProcesados++;
         std::string resultado = procesar_linea_comando(lineaLimpia);
 
-        reporte << "Linea " << numeroLinea << ": " << lineaLimpia << "\n";
-        reporte << "  -> " << resultado;
-        if (!resultado.empty() && resultado.back() != '\n') {
-            reporte << "\n";
+        if (!resultado.empty()) {
+            reporte << resultado;
+
+            if (resultado.back() != '\n') {
+                reporte << '\n';
+            }
         }
-        reporte << "\n";
     }
 
     if (comandosProcesados == 0) {

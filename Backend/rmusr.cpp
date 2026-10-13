@@ -1,5 +1,6 @@
 #include "rmusr.h"
 #include "ext2_utils.h"
+#include "journaling.h"
 #include <algorithm>
 #include <cctype>
 #include <iostream>
@@ -63,6 +64,10 @@ void rmusr(std::vector<std::string>& p, EstadoGlobal& e) {
     if (!escribirUsers(c, r)) {
         std::cout << "[ERROR] No se pudo actualizar users.txt.\n";
         return;
+    }
+
+    if (esExt3(c) && !registrarJournal(c, "rmusr", "/users.txt", "usuario=" + user)) {
+        std::cout << "[AVISO] El usuario se elimino, pero no se pudo registrar en el journaling.\n";
     }
 
     std::cout << "[EXITOSO] Usuario '" << user << "' eliminado.\n";

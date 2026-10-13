@@ -11,6 +11,8 @@ struct PeticionHttp {
     std::string metodo;  // "GET", "POST", "OPTIONS", etc.
     std::string ruta;    // "/api/comando"
     std::string cuerpo;  // el body del POST (JSON), vacio en un GET
+    int codigoError = 0;
+    std::string mensajeError;
 };
 
 // Lo que se devuelve al frontend

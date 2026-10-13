@@ -4,6 +4,7 @@
 #include <cctype>
 #include <filesystem>
 #include <iostream>
+#include <set>
 
 void rmdisk(std::vector<std::string>& parametros, EstadoGlobal& estado) {
     std::string path;
@@ -33,26 +34,48 @@ void rmdisk(std::vector<std::string>& parametros, EstadoGlobal& estado) {
         return;
     }
     
-    // Un disco no debe quedar montado al eliminarse.
+    // El archivo se elimina primero. Si falla, se conserva el estado en memoria.
+    std::error_code ec;
+    const bool eliminado = std::filesystem::remove(path, ec);
+    if (ec || !eliminado) {
+        std::cout << "[ERROR] No se pudo eliminar el disco";
+        if (ec) std::cout << ": " << ec.message();
+        std::cout << "\n";
+        return;
+    }
+
+    std::set<std::string> idsEliminados;
+    for (const auto &d : estado.discosMontados) {
+        if (d.ruta != path) continue;
+        for (const auto &p : d.particiones) {
+            if (!p.id.empty()) idsEliminados.insert(p.id);
+        }
+    }
+
     estado.discosMontados.erase(
         std::remove_if(
             estado.discosMontados.begin(),
             estado.discosMontados.end(),
-            [&](const disco& d) { return d.ruta == path; }
+            [&](const disco &d) { return d.ruta == path; }
         ),
         estado.discosMontados.end()
     );
-    
-    estado.particionesFormateadas.clear();
-    
-    std::error_code ec;
-    std::filesystem::remove(path, ec);
-    
-    if (ec) {
-        std::cout << "[ERROR] No se pudo eliminar el disco: " << ec.message() << "\n";
-        return;
+
+    if (estado.sesion.activa && idsEliminados.count(estado.sesion.id)) {
+        estado.sesion = EstadoGlobal::Sesion{};
     }
-    
+
+    // Las claves persistentes de formato usan "ruta-del-disco|nombre-particion".
+    const std::string prefijo = path + "|";
+    for (auto it = estado.particionesFormateadas.begin();
+         it != estado.particionesFormateadas.end();) {
+        if (it->first.rfind(prefijo, 0) == 0) {
+            it = estado.particionesFormateadas.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
     estado.discos.erase(path);
     std::cout << "[EXITOSO] Disco eliminado: " << path << "\n";
 }

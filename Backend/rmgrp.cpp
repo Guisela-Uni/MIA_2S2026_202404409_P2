@@ -1,5 +1,6 @@
 #include "rmgrp.h"
 #include "ext2_utils.h"
+#include "journaling.h"
 #include <algorithm>
 #include <cctype>
 #include <iostream>
@@ -63,6 +64,10 @@ void rmgrp(std::vector<std::string>& p, EstadoGlobal& e) {
     if (!escribirUsers(c, r)) {
         std::cout << "[ERROR] No se pudo actualizar users.txt.\n";
         return;
+    }
+
+    if (esExt3(c) && !registrarJournal(c, "rmgrp", "/users.txt", "grupo=" + name)) {
+        std::cout << "[AVISO] El grupo se elimino, pero no se pudo registrar en el journaling.\n";
     }
 
     std::cout << "[EXITOSO] Grupo '" << name << "' eliminado.\n";

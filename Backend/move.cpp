@@ -52,8 +52,12 @@ void move_cmd(std::vector<std::string> &parametros, EstadoGlobal &estado) {
     }
     const std::string rutaOrigen = normalizarRuta(path);
     const std::string rutaDestino = normalizarRuta(destino);
-    if (rutaOrigen == "/" || esRutaInterna(rutaOrigen, rutaDestino)) {
-        std::cout << "[ERROR] No se puede mover la raiz ni mover una carpeta dentro de si misma.\n";
+    if (rutaOrigen == "/") {
+        std::cout << "[ERROR] No se puede mover la raiz.\n";
+        return;
+    }
+    if (esRutaInterna(rutaOrigen, rutaDestino)) {
+        std::cout << "[ERROR] No se puede mover una carpeta dentro de si misma o de uno de sus descendientes.\n";
         return;
     }
 

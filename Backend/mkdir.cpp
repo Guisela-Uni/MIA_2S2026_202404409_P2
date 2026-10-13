@@ -1,5 +1,6 @@
 #include "mkdir.h"
 #include "ext2_utils.h"
+#include "journaling.h"
 #include <algorithm>
 #include <cctype>
 #include <iostream>
@@ -110,6 +111,11 @@ void mkdir_cmd(std::vector<std::string>& p, EstadoGlobal& e) {
         }
         
         cur = n;
+    }
+
+     const std::string rutaNormalizada = normalizarRuta(path);
+    if (esExt3(c) && !registrarJournal(c, "mkdir", rutaNormalizada)) {
+        std::cout << "[AVISO] El directorio se creo, pero no se pudo registrar en el journaling.\n";
     }
     
     std::cout << "[EXITOSO] Directorio creado: " << normalizarRuta(path) << "\n";

@@ -99,6 +99,10 @@ void find_cmd(std::vector<std::string> &parametros, EstadoGlobal &estado) {
         std::cout << "[ERROR] -path debe ser una carpeta.\n";
         return;
     }
+    if (!puedeLeer(directorio, estado.sesion.uid, estado.sesion.gid)) {
+        std::cout << "[ERROR] No tiene permiso de lectura en la carpeta inicial.\n";
+        return;
+    }
 
     try {
         const std::regex patron(patronRegex(nombre), std::regex::ECMAScript);

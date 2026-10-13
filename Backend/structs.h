@@ -76,6 +76,19 @@ struct disco {
     std::vector<montada> particiones;
 };
 
+// Registro binario de una operación almacenada en el journaling de EXT3.
+struct information {
+    char i_operation[10];
+    char i_path[32];
+    char i_content[64];
+    float i_date;
+};
+
+struct journaling {
+    int j_count;
+    information j_content;
+};
+
 struct sbloque {
     int s_filesystem_type;
     int s_inodes_count;
@@ -115,6 +128,17 @@ struct content {
 
 struct bcarpetas { content b_content[4]; };
 struct barchivos { char b_content[64]; };
+
+// Los nombres ocupan exactamente 12 bytes en el formato binario del proyecto.
+// Los nombres cortos incluyen NUL; los de 12 caracteres llenan el campo completo.
+// Esta función evita leer más allá del campo cuando no existe terminador NUL.
+inline std::string nombreEntradaDirectorio(const content &entrada) {
+    std::size_t longitud = 0;
+    while (longitud < sizeof(entrada.b_name) && entrada.b_name[longitud] != '\0') {
+        ++longitud;
+    }
+    return std::string(entrada.b_name, longitud);
+}
 struct bapuntadores { int b_pointers[16]; };
 
 struct usuario {
@@ -128,6 +152,8 @@ struct usuario {
 
 constexpr int EndMBR = sizeof(MBR);
 constexpr int EXT2_MAGIC = 0xEF53;
+constexpr int EXT3_MAGIC = 0xEF53;
+constexpr int JOURNALING_SIZE = 50;
 extern const std::regex igual;
 
 #endif

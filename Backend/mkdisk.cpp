@@ -98,8 +98,11 @@ void mkdisk(std::vector<std::string>& parametros, EstadoGlobal& estado) {
     }
     
     std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
-    
+    const std::filesystem::path directorioPadre = std::filesystem::path(path).parent_path();
+    if (!directorioPadre.empty()) {
+        std::filesystem::create_directories(directorioPadre, ec);
+    }
+
     if (ec) {
         std::cout << "[ERROR] No se pudieron crear las carpetas de la ruta.\n";
         return;

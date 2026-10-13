@@ -8,6 +8,7 @@
 // Indica si el contexto corresponde a una particion formateada como EXT3.
 bool esExt3(const Ext2Context &ctx);
 
+// Registra una operacion en el primer espacio libre del journal de EXT3.
 // Devuelve false si el filesystem no es EXT3, el journal esta lleno o falla I/O.
 bool registrarJournal(
     const Ext2Context &ctx,

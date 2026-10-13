@@ -1,5 +1,6 @@
 #include "mkusr.h"
 #include "ext2_utils.h"
+#include "journaling.h"
 #include <algorithm>
 #include <cctype>
 #include <iostream>
@@ -93,6 +94,10 @@ void mkusr(std::vector<std::string>& p, EstadoGlobal& e) {
     if (!escribirUsers(c, r)) {
         std::cout << "[ERROR] No se pudo actualizar users.txt.\n";
         return;
+    }
+
+    if (esExt3(c) && !registrarJournal(c, "mkusr", "/users.txt", "usuario=" + user + ", grupo=" + grp)) {
+        std::cout << "[AVISO] El usuario se creo, pero no se pudo registrar en el journaling.\n";
     }
     
     std::cout << "[EXITOSO] Usuario '" << user << "' creado.\n";

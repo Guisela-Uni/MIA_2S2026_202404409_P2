@@ -1,5 +1,6 @@
 #include "mkgrp.h"
 #include "ext2_utils.h"
+#include "journaling.h"
 #include <algorithm>
 #include <cctype>
 #include <iostream>
@@ -76,6 +77,10 @@ void mkgrp(std::vector<std::string>& p, EstadoGlobal& e) {
     if (!escribirUsers(c, r)) {
         std::cout << "[ERROR] No se pudo actualizar users.txt.\n";
         return;
+    }
+
+    if (esExt3(c) && !registrarJournal(c, "mkgrp", "/users.txt", "grupo=" + name)) {
+        std::cout << "[AVISO] El grupo se creo, pero no se pudo registrar en el journaling.\n";
     }
     
     std::cout << "[EXITOSO] Grupo '" << name << "' creado.\n";

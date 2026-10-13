@@ -201,13 +201,139 @@ bool escribirBloqueArchivo(const Ext2Context&c,int n,const barchivos&b){return w
 bool leerBloquePunteros(const Ext2Context&c,int n,bapuntadores&b){return rd(c.path,c.sb.s_block_start+(std::streamoff)n*sizeof(bapuntadores),b);}
 bool escribirBloquePunteros(const Ext2Context&c,int n,const bapuntadores&b){return wr(c.path,c.sb.s_block_start+(std::streamoff)n*sizeof(bapuntadores),b);}
 bool guardarSuper(const Ext2Context&c){return wr(c.path,c.start,c.sb);}
-int asignarInodo(Ext2Context&c){std::fstream f(c.path,std::ios::in|std::ios::out|std::ios::binary);if(!f)return -1;for(int i=0;i<c.sb.s_inodes_count;i++){f.seekg(c.sb.s_bm_inode_start+i);char b=0;f.read(&b,1);if(b==0){b=1;f.seekp(c.sb.s_bm_inode_start+i);f.write(&b,1);c.sb.s_free_inodes_count--;c.sb.s_first_ino=(i+1<c.sb.s_inodes_count)?i+1:i;guardarSuper(c);return i;}}return -1;}
-int asignarBloque(Ext2Context&c){std::fstream f(c.path,std::ios::in|std::ios::out|std::ios::binary);if(!f)return -1;for(int i=0;i<c.sb.s_blocks_count;i++){f.seekg(c.sb.s_bm_block_start+i);char b=0;f.read(&b,1);if(b==0){b=1;f.seekp(c.sb.s_bm_block_start+i);f.write(&b,1);c.sb.s_free_blocks_count--;c.sb.s_first_blo=(i+1<c.sb.s_blocks_count)?i+1:i;guardarSuper(c);return i;}}return -1;}
-bool liberarInodo(Ext2Context&c,int n){if(n<0||n>=c.sb.s_inodes_count)return false;char z=0;std::fstream f(c.path,std::ios::in|std::ios::out|std::ios::binary);if(!f)return false;f.seekp(c.sb.s_bm_inode_start+n);f.write(&z,1);c.sb.s_free_inodes_count++;guardarSuper(c);return true;}
-bool liberarBloque(Ext2Context&c,int n){if(n<0||n>=c.sb.s_blocks_count)return false;char z=0;std::fstream f(c.path,std::ios::in|std::ios::out|std::ios::binary);if(!f)return false;f.seekp(c.sb.s_bm_block_start+n);f.write(&z,1);c.sb.s_free_blocks_count++;guardarSuper(c);return true;}
-std::string normalizarRuta(const std::string&p){if(p.empty())return "/";std::string r=p;if(r[0]!='/')r="/"+r;while(r.size()>1&&r.back()=='/')r.pop_back();return r;}
-std::vector<std::string> partesRuta(const std::string&p){std::vector<std::string>v;std::stringstream ss(normalizarRuta(p));std::string x;while(std::getline(ss,x,'/'))if(!x.empty())v.push_back(x);return v;}
-bool buscarEntrada(const Ext2Context&c,int dir,const std::string&nombre,int&ino,int*bloque,int*slot){inodo d{};if(!leerInodo(c,dir,d)||d.i_type!=0)return false;for(int k=0;k<15;k++){int pb;if(!blockIndex(c,d,k,pb))continue;bcarpetas b{};if(!leerBloqueCarpeta(c,pb,b))continue;for(int s=0;s<4;s++)if(b.b_content[s].b_inodo>=0&&std::string(b.b_content[s].b_name)==nombre){ino=b.b_content[s].b_inodo;if(bloque)*bloque=pb;if(slot)*slot=s;return true;}}return false;}
+int asignarInodo(Ext2Context &ctx) {
+    const int total = ctx.sb.s_inodes_count;
+    if (total <= 0) return -1;
+
+    std::fstream archivo(ctx.path, std::ios::in | std::ios::out | std::ios::binary);
+    if (!archivo) return -1;
+
+    const int inicio = (ctx.sb.s_first_ino >= 0 && ctx.sb.s_first_ino < total)
+        ? ctx.sb.s_first_ino : 0;
+    for (int desplazamiento = 0; desplazamiento < total; ++desplazamiento) {
+        const int indice = (inicio + desplazamiento) % total;
+        char ocupado = 0;
+        archivo.clear();
+        archivo.seekg(ctx.sb.s_bm_inode_start + indice);
+        archivo.read(&ocupado, 1);
+        if (!archivo) return -1;
+        if (ocupado != 0) continue;
+
+        ocupado = 1;
+        archivo.clear();
+        archivo.seekp(ctx.sb.s_bm_inode_start + indice);
+        archivo.write(&ocupado, 1);
+        if (!archivo) return -1;
+
+        --ctx.sb.s_free_inodes_count;
+        ctx.sb.s_first_ino = (indice + 1) % total;
+        archivo.seekp(ctx.start);
+        archivo.write(reinterpret_cast<const char *>(&ctx.sb), sizeof(ctx.sb));
+        archivo.flush();
+        return archivo ? indice : -1;
+    }
+    return -1;
+}
+
+int asignarBloque(Ext2Context &ctx) {
+    const int total = ctx.sb.s_blocks_count;
+    if (total <= 0) return -1;
+
+    std::fstream archivo(ctx.path, std::ios::in | std::ios::out | std::ios::binary);
+    if (!archivo) return -1;
+
+    const int inicio = (ctx.sb.s_first_blo >= 0 && ctx.sb.s_first_blo < total)
+        ? ctx.sb.s_first_blo : 0;
+    for (int desplazamiento = 0; desplazamiento < total; ++desplazamiento) {
+        const int indice = (inicio + desplazamiento) % total;
+        char ocupado = 0;
+        archivo.clear();
+        archivo.seekg(ctx.sb.s_bm_block_start + indice);
+        archivo.read(&ocupado, 1);
+        if (!archivo) return -1;
+        if (ocupado != 0) continue;
+
+        ocupado = 1;
+        archivo.clear();
+        archivo.seekp(ctx.sb.s_bm_block_start + indice);
+        archivo.write(&ocupado, 1);
+        if (!archivo) return -1;
+
+        --ctx.sb.s_free_blocks_count;
+        ctx.sb.s_first_blo = (indice + 1) % total;
+        archivo.seekp(ctx.start);
+        archivo.write(reinterpret_cast<const char *>(&ctx.sb), sizeof(ctx.sb));
+        archivo.flush();
+        return archivo ? indice : -1;
+    }
+    return -1;
+}
+
+bool liberarInodo(Ext2Context &ctx, int indice) {
+    if (indice < 0 || indice >= ctx.sb.s_inodes_count) return false;
+    char libre = 0;
+    std::fstream archivo(ctx.path, std::ios::in | std::ios::out | std::ios::binary);
+    if (!archivo) return false;
+    archivo.seekp(ctx.sb.s_bm_inode_start + indice);
+    archivo.write(&libre, 1);
+    if (!archivo) return false;
+    ++ctx.sb.s_free_inodes_count;
+    ctx.sb.s_first_ino = std::min(ctx.sb.s_first_ino, indice);
+    archivo.seekp(ctx.start);
+    archivo.write(reinterpret_cast<const char *>(&ctx.sb), sizeof(ctx.sb));
+    archivo.flush();
+    return static_cast<bool>(archivo);
+}
+
+bool liberarBloque(Ext2Context &ctx, int indice) {
+    if (indice < 0 || indice >= ctx.sb.s_blocks_count) return false;
+    char libre = 0;
+    std::fstream archivo(ctx.path, std::ios::in | std::ios::out | std::ios::binary);
+    if (!archivo) return false;
+    archivo.seekp(ctx.sb.s_bm_block_start + indice);
+    archivo.write(&libre, 1);
+    if (!archivo) return false;
+    ++ctx.sb.s_free_blocks_count;
+    ctx.sb.s_first_blo = std::min(ctx.sb.s_first_blo, indice);
+    archivo.seekp(ctx.start);
+    archivo.write(reinterpret_cast<const char *>(&ctx.sb), sizeof(ctx.sb));
+    archivo.flush();
+    return static_cast<bool>(archivo);
+}
+std::string normalizarRuta(const std::string &ruta) {
+    if (ruta.empty()) return "/";
+
+    std::vector<std::string> componentes;
+    std::stringstream flujo(ruta);
+    std::string componente;
+
+    while (std::getline(flujo, componente, '/')) {
+        if (componente.empty() || componente == ".") continue;
+        if (componente == "..") {
+            if (!componentes.empty()) componentes.pop_back();
+            continue;
+        }
+        componentes.push_back(componente);
+    }
+
+    std::string normalizada;
+    for (const auto &parte : componentes) {
+        normalizada += "/" + parte;
+    }
+    return normalizada.empty() ? "/" : normalizada;
+}
+
+std::vector<std::string> partesRuta(const std::string &ruta) {
+    std::vector<std::string> componentes;
+    std::stringstream flujo(normalizarRuta(ruta));
+    std::string componente;
+
+    while (std::getline(flujo, componente, '/')) {
+        if (!componente.empty()) componentes.push_back(componente);
+    }
+    return componentes;
+}
+bool buscarEntrada(const Ext2Context&c,int dir,const std::string&nombre,int&ino,int*bloque,int*slot){inodo d{};if(!leerInodo(c,dir,d)||d.i_type!=0)return false;for(int k=0;k<15;k++){int pb;if(!blockIndex(c,d,k,pb))continue;bcarpetas b{};if(!leerBloqueCarpeta(c,pb,b))continue;for(int s=0;s<4;s++)if(b.b_content[s].b_inodo>=0&&nombreEntradaDirectorio(b.b_content[s])==nombre){ino=b.b_content[s].b_inodo;if(bloque)*bloque=pb;if(slot)*slot=s;return true;}}return false;}
 bool resolverRuta(const Ext2Context&c,const std::string&path,int&ino,int*padre,std::string*nombre){auto v=partesRuta(path);ino=0;int par=0;if(v.empty()){if(padre)*padre=-1;if(nombre)*nombre="/";return true;}for(auto&x:v){par=ino;if(!buscarEntrada(c,ino,x,ino))return false;}if(padre)*padre=par;if(nombre)*nombre=v.back();return true;}
 
 bool esDescendienteDirectorio(const Ext2Context &ctx, int posibleAncestro, int directorioDestino) {
@@ -233,7 +359,7 @@ bool esDescendienteDirectorio(const Ext2Context &ctx, int posibleAncestro, int d
 
     return false;
 }
-bool agregarEntrada(Ext2Context&c,int dir,const std::string&nombre,int child){if(nombre.empty()||nombre.size()>11)return false;inodo d{};if(!leerInodo(c,dir,d)||d.i_type!=0)return false;if(permBits(d,1,1)==0)return false;for(int k=0;k<15;k++){int pb;if(blockIndex(c,d,k,pb)){bcarpetas b{};leerBloqueCarpeta(c,pb,b);for(int s=0;s<4;s++)if(b.b_content[s].b_inodo<0){std::memset(b.b_content[s].b_name,0,12);std::strncpy(b.b_content[s].b_name,nombre.c_str(),11);b.b_content[s].b_inodo=child;return escribirBloqueCarpeta(c,pb,b);}}else{int nb=asignarBloque(c);if(nb<0)return false;bcarpetas b{};initFolder(b);std::strncpy(b.b_content[0].b_name,nombre.c_str(),11);b.b_content[0].b_inodo=child;if(!escribirBloqueCarpeta(c,nb,b))return false;if(!setBlockIndex(c,d,k,nb))return false;return escribirInodo(c,dir,d);}}return false;}
+bool agregarEntrada(Ext2Context&c,int dir,const std::string&nombre,int child){if(nombre.empty()||nombre.size()>sizeof(content::b_name))return false;inodo d{};if(!leerInodo(c,dir,d)||d.i_type!=0)return false;if(permBits(d,1,1)==0)return false;for(int k=0;k<15;k++){int pb;if(blockIndex(c,d,k,pb)){bcarpetas b{};leerBloqueCarpeta(c,pb,b);for(int s=0;s<4;s++)if(b.b_content[s].b_inodo<0){std::memset(b.b_content[s].b_name,0,12);std::memcpy(b.b_content[s].b_name,nombre.data(),nombre.size());b.b_content[s].b_inodo=child;return escribirBloqueCarpeta(c,pb,b);}}else{int nb=asignarBloque(c);if(nb<0)return false;bcarpetas b{};initFolder(b);std::memcpy(b.b_content[0].b_name,nombre.data(),nombre.size());b.b_content[0].b_inodo=child;if(!escribirBloqueCarpeta(c,nb,b))return false;if(!setBlockIndex(c,d,k,nb))return false;return escribirInodo(c,dir,d);}}return false;}
 bool eliminarEntrada(Ext2Context&c,int dir,const std::string&nombre){int ino,b,slot;if(!buscarEntrada(c,dir,nombre,ino,&b,&slot))return false;bcarpetas x{};if(!leerBloqueCarpeta(c,b,x))return false;x.b_content[slot].b_inodo=-1;std::memset(x.b_content[slot].b_name,0,12);return escribirBloqueCarpeta(c,b,x);}
 
 bool listarEntradasDirectorio(const Ext2Context &c, int dirIno,
@@ -262,7 +388,7 @@ bool listarEntradasDirectorio(const Ext2Context &c, int dirIno,
 
 bool cambiarNombreEntrada(const Ext2Context &c, int dirIno,
                           const std::string &nombreActual, const std::string &nombreNuevo) {
-    if (nombreNuevo.empty() || nombreNuevo.size() > 11) return false;
+    if (nombreNuevo.empty() || nombreNuevo.size() > sizeof(content::b_name)) return false;
     int ino = -1, bloqueFisico = -1, slot = -1;
     if (!buscarEntrada(c, dirIno, nombreActual, ino, &bloqueFisico, &slot)) return false;
 
