@@ -1,0 +1,41 @@
+# PARTE 3
+# sesion root activa en EXT3.
+# [OK] Cambiar nombre
+rename -path=/evaluacion/origen/a.txt -name=nota.txt
+
+# [ERROR] Nuevo nombre ya utilizado
+rename -path=/evaluacion/origen/b.txt -name=nota.txt
+
+
+# [OK] Copiar un archivo a carpeta destino
+copy -path=/evaluacion/origen/nota.txt -destino=/evaluacion/destino
+
+# [ERROR] Destino inexistente
+copy -path=/evaluacion/origen/nota.txt -destino=/evaluacion/fantasma
+
+# [OK] Mover archivo de un directorio a otro
+move -path=/evaluacion/origen/b.txt -destino=/evaluacion/movidos
+
+# [ERROR] El origen ya no contiene b.txt
+cat -file1=/evaluacion/origen/b.txt
+
+# [OK] El archivo movido conserva contenido
+cat -file1=/evaluacion/movidos/b.txt
+
+# [OK] Buscar archivos por patron
+find -path=/evaluacion -name="*.txt"
+
+# [OK] Cambiar permisos y propietario
+chmod -path=/evaluacion/movidos/b.txt -ugo=640
+chown -path=/evaluacion/movidos/b.txt -usuario=root
+
+# [ERROR] Usuario nuevo propietario no existe
+chown -path=/evaluacion/movidos/b.txt -usuario=noexiste
+
+# [OK] Eliminar archivo
+remove -path=/evaluacion/borrar/temporal.txt
+
+# [ERROR] No se puede eliminar dos veces
+remove -path=/evaluacion/borrar/temporal.txt
+
+# LA MAYORIA SE VA A VERIFICAR A TRAVES DE LA INTERFAZ GRAFICA

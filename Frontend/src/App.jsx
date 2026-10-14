@@ -386,7 +386,7 @@ function App() {
     <div className="app">
       <header className="encabezado">
         <div>
-          <h1>C++ DISK ONLINE</h1>
+          <h1>SIMULADOR ONLINE</h1>
           <p className="subtitulo">Sistema de archivos EXT2 / EXT3</p>
         </div>
         <div className="encabezado-acciones">
@@ -426,7 +426,7 @@ function App() {
                 </div>
               </div>
               <textarea className="textarea-comandos" value={comandos} onChange={(evento) => { setComandos(evento.target.value); setArchivoSmia(''); setConfirmacion(null) }} spellCheck={false} placeholder={'mkdisk -size=10 -unit=m -path="/ruta/Disco1.mia"\nfdisk -size=8 -unit=m -path="/ruta/Disco1.mia" -name=principal\nmount -path="/ruta/Disco1.mia" -name=principal\n# Usa el ID que realmente imprime MOUNT; 091A es solo un ejemplo\nmkfs -id=091A -fs=3fs'} />
-              <div className="archivo-seleccionado">{archivoSmia || (sesion ? `Sesión activa: ${sesion.usuario} en ${sesion.id}` : 'Primero crea, monta y formatea una partición para iniciar sesión.')}</div>
+              <div className="archivo-seleccionado">{archivoSmia || (sesion ? `Sesión activa: ${sesion.usuario} en ${sesion.id}` : 'Se necesita crear, montar y formatear una partición para iniciar sesión.')}</div>
               <button className="boton-procesar" type="button" onClick={() => ejecutarTerminal()} disabled={ejecutando || !comandos.trim()}>{ejecutando ? 'Procesando...' : 'Ejecutar'}</button>
               {confirmacion && <div className="confirmacion"><p>{confirmacion.mensaje}</p><button className="boton-procesar" type="button" onClick={confirmarComando}>Confirmar operación</button><button className="boton-secundario" type="button" onClick={() => setConfirmacion(null)}>Cancelar</button></div>}
             </section>

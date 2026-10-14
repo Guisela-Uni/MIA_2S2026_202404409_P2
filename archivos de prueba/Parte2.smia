@@ -1,0 +1,22 @@
+# PARTE 2 
+
+# ANTES DE EJECUTAR: LOGIN desde interfaz con usuario root, clave 123 e ID_EXT3 (EXT3 ES LA 2 PARTICION MONTADA)
+
+# [OK] Crear directorios 
+mkdir -path=/evaluacion -p
+mkdir -path=/evaluacion/origen
+mkdir -path=/evaluacion/destino
+mkdir -path=/evaluacion/movidos
+mkdir -path=/evaluacion/borrar
+
+# [OK] Crear archivos pequenos
+mkfile -path=/evaluacion/origen/a.txt -size=15
+mkfile -path=/evaluacion/origen/b.txt -size=70
+mkfile -path=/evaluacion/borrar/temporal.txt -size=8
+
+# [OK] Leer archivo existente.
+cat -file1=/evaluacion/origen/a.txt
+
+# Se va a calificar navegar por la interfaz y poder ver los archivos y toda la parte grafica.
+
+# NO CERRAR SESION

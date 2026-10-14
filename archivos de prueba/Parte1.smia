@@ -1,0 +1,39 @@
+# PARTE 1 - UNICAMENTE PREPARA LOS DATOS
+
+# [OK] Crear disco con 2 particiones primarias.
+mkdisk -size=30 -unit=M -path=/tmp/mia_p2_eval/disco.mia
+fdisk -size=8 -unit=M -name=ext2 -type=P -path=/tmp/mia_p2_eval/disco.mia
+fdisk -size=10 -unit=M -name=ext3 -type=P -path=/tmp/mia_p2_eval/disco.mia
+
+# [ERROR] No permitir particion duplicada.
+fdisk -size=1 -unit=M -name=ext2 -path=/tmp/mia_p2_eval/disco.mia
+
+# ----- NUEVAS FEATURES
+# [OK] Sumar 1 MB a la ultima particion
+fdisk -add=1 -unit=M -name=ext3 -path=/tmp/mia_p2_eval/disco.mia
+
+# [OK] Reducir nuevamente 1 MB.
+fdisk -add=-1 -unit=M -name=ext3 -path=/tmp/mia_p2_eval/disco.mia
+
+
+# [ERROR] No reducir ext2 mas alla de su capacidad.
+fdisk -add=-20 -unit=M -name=ext2 -path=/tmp/mia_p2_eval/disco.mia
+
+
+
+# [OK] Montar ambas particiones.
+mount -path=/tmp/mia_p2_eval/disco.mia -name=ext2
+mount -path=/tmp/mia_p2_eval/disco.mia -name=ext3
+mounted
+
+
+# PAUSA MANUAL: copiar IDs reales desde la salida de MOUNTED.
+# Reemplazar ID_EXT2 e ID_EXT3 ABAJO CON EL IDENTIFICADOR SEGUN SU NUMERO DE CARNET
+
+
+# [OK] Verificar soporte de EXT2 y EXT3.
+mkfs -id=091A -fs=2fs
+mkfs -id=091A -fs=3fs
+
+# SE VERIFICA EN LA INTERFAZ GRAFICA QUE ESTEN CREADOS (users.txt y raiz /.)
+

@@ -1,0 +1,35 @@
+# PARTE 4 
+# REEMPLZAR POR LOS IDS CORRECTOS
+
+
+# [OK] Ver operaciones registradas para particion EXT3 - MKDIR, MKFILE, RENAME, COPY, MOVE o REMOVE
+journaling -id=ID_EXT3
+
+# ------- revisar los bitmaps para ver que si exista indo 
+
+
+# [OK] Simular perdida 
+loss -id=ID_EXT3
+# bitmaps en 0
+
+
+# LOGOUT --- DESDE LA INTERFAZ
+
+# --------UNMOUNT
+# [OK] Desmontar EXT2.
+unmount -id=ID_EXT2
+mounted
+# [ERROR] ID ya desmontado.
+unmount -id=ID_EXT2
+# [OK] Desmontar EXT3.
+unmount -id=ID_EXT3
+
+# revisar
+mounted
+
+# [OK] Eliminacion particion EXT2, se confirma desde interfaz
+
+fdisk -delete=fast -name=ext2 -path=/tmp/mia_p2_eval/disco.mia
+
+# [ERROR] Particion ya eliminada.
+fdisk -delete=fast -name=ext2 -path=/tmp/mia_p2_eval/disco.mia

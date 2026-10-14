@@ -458,7 +458,7 @@ int main() {
     servidor.agregarRuta("POST", "/api/journaling", manejarJournalHttp);
 
     std::cout << "======================================================\n";
-    std::cout << " C++ DISK ONLINE - API REST para el frontend\n";
+    std::cout << " SIMULADOR ONLINE - API REST para el frontend\n";
     std::cout << "======================================================\n";
     std::cout << "POST http://localhost:" << puerto << "/api/comando\n";
     std::cout << "POST http://localhost:" << puerto << "/api/procesar\n";
